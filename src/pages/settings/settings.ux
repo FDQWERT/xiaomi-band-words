@@ -1,0 +1,260 @@
+<template>
+  <div class="page">
+    <div class="top-bar">
+      <text class="title">设置</text>
+      <text class="back-btn" onclick="back">返回</text>
+    </div>
+
+    <text class="section-title">每天新词</text>
+    <div class="chip-row">
+      <block for="{{ opt in newOptions }}">
+        <div class="{{ opt.cls }}" onclick="setDailyNew(opt.v)">
+          <text class="{{ opt.tcls }}">{{ opt.v }}</text>
+        </div>
+      </block>
+    </div>
+
+    <text class="section-title">每日复习上限</text>
+    <div class="chip-row">
+      <block for="{{ opt in capOptions }}">
+        <div class="{{ opt.cls }}" onclick="setCap(opt.v)">
+          <text class="{{ opt.tcls }}">{{ opt.v }}</text>
+        </div>
+      </block>
+    </div>
+
+    <text class="section-title">新词顺序</text>
+    <div class="chip-row">
+      <div class="{{ seqCls }}" onclick="setOrder('seq')">
+        <text class="{{ seqTextCls }}">按词表顺序</text>
+      </div>
+      <div class="{{ randCls }}" onclick="setOrder('random')">
+        <text class="{{ randTextCls }}">随机乱序</text>
+      </div>
+    </div>
+
+    <div class="{{ resetCls }}" onclick="resetProgress">
+      <text class="danger-text">{{ resetText }}</text>
+    </div>
+
+    <text class="foot-line">词库 {{ wordTotal }} 词 · 数据存本地</text>
+    <text class="foot-line">音标为字母近似记法，如 sh、th</text>
+  </div>
+</template>
+
+<script>
+import router from "@system.router"
+import prompt from "@system.prompt"
+
+const store = require("../../common/store.js")
+
+const NEW_CHOICES = [10, 15, 20, 30, 50]
+const CAP_CHOICES = [100, 150, 200, 300]
+
+function chips(choices, current) {
+  return choices.map((value) => ({
+    v: value,
+    on: value === current,
+    cls: value === current ? "chip chip-on" : "chip",
+    tcls: value === current ? "chip-text-on" : "chip-text"
+  }))
+}
+
+export default {
+  private: {
+    newOptions: [],
+    capOptions: [],
+    seqCls: "chip chip-wide",
+    seqTextCls: "chip-text",
+    randCls: "chip chip-wide",
+    randTextCls: "chip-text",
+    resetCls: "danger-btn",
+    resetText: "清空学习进度",
+    confirmReset: false,
+    wordTotal: 0,
+    resetTimer: 0
+  },
+
+  onInit() {
+    store.load(() => this.refresh())
+  },
+
+  onShow() {
+    if (!store.ready()) {
+      store.load(() => this.refresh())
+      return
+    }
+    store.reload(() => this.refresh())
+  },
+
+  onDestroy() {
+    if (this.resetTimer) {
+      clearTimeout(this.resetTimer)
+      this.resetTimer = 0
+    }
+  },
+
+  refresh() {
+    if (!store.ready()) return
+    const settings = store.settings()
+    this.wordTotal = store.wordCount()
+    this.newOptions = chips(NEW_CHOICES, settings.dailyNew)
+    this.capOptions = chips(CAP_CHOICES, settings.reviewCap)
+
+    const seq = settings.order === "seq"
+    this.seqCls = seq ? "chip chip-wide chip-on" : "chip chip-wide"
+    this.seqTextCls = seq ? "chip-text-on" : "chip-text"
+    this.randCls = seq ? "chip chip-wide" : "chip chip-wide chip-on"
+    this.randTextCls = seq ? "chip-text" : "chip-text-on"
+  },
+
+  setDailyNew(value) {
+    store.saveSettings({ dailyNew: value })
+    this.refresh()
+    prompt.showToast({ message: "每天学 " + value + " 个新词" })
+  },
+
+  setCap(value) {
+    store.saveSettings({ reviewCap: value })
+    this.refresh()
+    prompt.showToast({ message: "每天最多复习 " + value + " 个" })
+  },
+
+  setOrder(value) {
+    store.saveSettings({ order: value })
+    this.refresh()
+  },
+
+  resetProgress() {
+    if (!this.confirmReset) {
+      this.confirmReset = true
+      this.resetCls = "danger-btn danger-on"
+      this.resetText = "再点一次，清空全部进度"
+      if (this.resetTimer) clearTimeout(this.resetTimer)
+      this.resetTimer = setTimeout(() => {
+        this.confirmReset = false
+        this.resetCls = "danger-btn"
+        this.resetText = "清空学习进度"
+        this.resetTimer = 0
+      }, 4000)
+      return
+    }
+    if (this.resetTimer) {
+      clearTimeout(this.resetTimer)
+      this.resetTimer = 0
+    }
+    this.confirmReset = false
+    this.resetCls = "danger-btn"
+    this.resetText = "清空学习进度"
+    store.resetAll()
+    prompt.showToast({ message: "已清空学习进度" })
+    this.refresh()
+  },
+
+  back() {
+    router.back()
+  }
+}
+</script>
+
+<style>
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 0 16px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.top-bar {
+  width: 100%;
+  height: 44px;
+  margin-top: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.back-btn {
+  font-size: 21px;
+  color: #34d399;
+}
+
+.section-title {
+  margin-top: 12px;
+  width: 100%;
+  font-size: 20px;
+  color: #8b949e;
+}
+
+.chip-row {
+  width: 100%;
+  margin-top: 8px;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.chip {
+  flex: 1;
+  height: 54px;
+  margin: 0 3px;
+  border-radius: 14px;
+  background-color: #16191c;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.chip-wide {
+  flex: 1;
+}
+
+.chip-on {
+  background-color: #34d399;
+}
+
+.chip-text {
+  font-size: 22px;
+  color: #c9d1d9;
+}
+
+.chip-text-on {
+  font-size: 22px;
+  font-weight: bold;
+  color: #06251b;
+}
+
+.danger-btn {
+  width: 100%;
+  height: 52px;
+  margin-top: 18px;
+  border-radius: 14px;
+  background-color: #1d1a1a;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.danger-on {
+  background-color: #7f1d1d;
+}
+
+.danger-text {
+  font-size: 20px;
+  color: #f87171;
+}
+
+.foot-line {
+  width: 100%;
+  margin-top: 14px;
+  font-size: 17px;
+  color: #4d545b;
+  text-align: center;
+}
+</style>

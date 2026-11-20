@@ -1,0 +1,46 @@
+{
+  "package": "com.dsh.bandwords",
+  "name": "背单词",
+  "versionName": "1.0.9",
+  "versionCode": 10,
+  "minPlatformVersion": 1000,
+  "icon": "/common/logo.png",
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    {
+      "name": "system.router"
+    },
+    {
+      "name": "system.storage"
+    },
+    {
+      "name": "system.prompt"
+    }
+  ],
+  "config": {
+    "logLevel": "log",
+    "designWidth": 336
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      },
+      "pages/study": {
+        "component": "study"
+      },
+      "pages/settings": {
+        "component": "settings"
+      },
+      "pages/stats": {
+        "component": "stats"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#000000"
+  }
+}

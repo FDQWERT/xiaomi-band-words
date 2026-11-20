@@ -1,0 +1,375 @@
+<template>
+  <div class="page">
+    <div class="top-bar">
+      <text class="brand">背单词</text>
+      <text class="streak">{{ streakText }}</text>
+    </div>
+
+    <div class="hero">
+      <text class="hero-num">{{ dueText }}</text>
+      <text class="hero-label">今日待复习</text>
+    </div>
+
+    <div class="stats-card">
+      <div class="stat-item">
+        <text class="stat-num stat-new">{{ newText }}</text>
+        <text class="stat-label">新词</text>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <text class="stat-num">{{ learnedText }}</text>
+        <text class="stat-label">已学</text>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat-item">
+        <text class="stat-num">{{ masteryText }}</text>
+        <text class="stat-label">掌握率</text>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bg">
+        <div class="progress-fill" style="width: {{ progressPercent }}%"></div>
+      </div>
+      <text class="progress-text">{{ progressText }}</text>
+    </div>
+
+    <div class="btn-primary {{ canStart ? '' : 'btn-disabled' }}" onclick="startStudy">
+      <text class="btn-text">{{ startText }}</text>
+    </div>
+
+    <div class="quick-row">
+      <div class="quick-btn {{ canExtend ? '' : 'quick-off' }}" onclick="continueStudy">
+        <text class="quick-title">继续学习</text>
+        <text class="quick-sub">{{ extendText }}</text>
+      </div>
+      <div class="quick-btn {{ canTodayReview ? '' : 'quick-off' }}" onclick="openTodayReview">
+        <text class="quick-title">今日复习</text>
+        <text class="quick-sub">{{ todayText }}</text>
+      </div>
+    </div>
+
+    <div class="footer">
+      <text class="footer-btn" onclick="openStats">学习统计</text>
+      <text class="footer-btn" onclick="openSettings">设置</text>
+    </div>
+  </div>
+</template>
+
+<script>
+import router from "@system.router"
+
+const store = require("../../common/store.js")
+
+export default {
+  private: {
+    dueText: "0",
+    newText: "0",
+    learnedText: "0",
+    masteryText: "0%",
+    progressPercent: 0,
+    progressText: "今日 0 / 0",
+    startText: "开始学习",
+    canStart: false,
+    streakText: "",
+    canExtend: false,
+    extendCount: 0,
+    extendText: "+20 词",
+    pendingCount: 0,
+    canTodayReview: false,
+    todayCount: 0,
+    todayText: "0 词"
+  },
+
+  onInit() {
+    store.load(() => this.refresh())
+  },
+
+  onShow() {
+    // 快应用按页面打包，每个页面各有一份 store 实例，
+    // 从学习页返回时必须重新读本地存储，否则首页还是旧数据
+    if (!store.ready()) {
+      store.load(() => this.refresh())
+      return
+    }
+    store.reload(() => this.refresh())
+  },
+
+  refresh() {
+    if (!store.ready()) return
+    const info = store.summary()
+    const streak = info.streak || 0
+    this.dueText = String(info.dueLeft)
+    this.newText = String(info.newLeft)
+    this.learnedText = String(info.learned)
+    this.streakText = streak > 0 ? "连续 " + streak + " 天" : "今天开始"
+
+    const rate = info.learned > 0 ? Math.round((info.mastered / info.learned) * 100) : 0
+    this.masteryText = rate + "%"
+
+    const total = info.planTotal
+    const done = info.done
+    this.progressPercent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
+    this.progressText = "今日 " + done + " / " + total
+
+    const settings = store.settings()
+    const left = store.remainingNewCount()
+    this.pendingCount = info.dueLeft + info.newLeft
+    this.extendCount = Math.min(settings.dailyNew, left)
+    this.canExtend = this.pendingCount > 0 || this.extendCount > 0
+    if (this.pendingCount > 0) {
+      this.extendText = "还剩 " + this.pendingCount + " 词"
+    } else if (this.extendCount > 0) {
+      this.extendText = "+" + this.extendCount + " 词"
+    } else {
+      this.extendText = "已学完全部"
+    }
+    this.todayCount = store.todayReviewCount()
+    this.canTodayReview = this.todayCount > 0
+    this.todayText = this.canTodayReview ? this.todayCount + " 词" : "今天还没学"
+
+    const remain = info.dueLeft + info.newLeft
+    this.canStart = remain > 0
+    if (remain === 0) {
+      this.startText = total > 0 ? "今日任务已完成" : "今日无需复习"
+    } else if (info.dueLeft === 0) {
+      this.startText = "学习 " + info.newLeft + " 个新词"
+    } else {
+      this.startText = "开始学习 · " + remain + " 词"
+    }
+  },
+
+  startStudy() {
+    if (!this.canStart) {
+      return
+    }
+    store.setSession("plan", function () {
+      router.push({ uri: "/pages/study" })
+    })
+  },
+
+  // 今天还有没学完的就继续学；都学完了就再追加一批新词
+  continueStudy() {
+    if (!this.canExtend) {
+      return
+    }
+    if (this.pendingCount > 0) {
+      store.setSession("plan", function () {
+        router.push({ uri: "/pages/study" })
+      })
+      return
+    }
+    store.extendNewWords(this.extendCount)
+    store.flush(function () {
+      store.setSession("plan", function () {
+        router.push({ uri: "/pages/study" })
+      })
+    })
+  },
+
+  // 只复习今天新学过的词
+  openTodayReview() {
+    if (!this.canTodayReview) {
+      return
+    }
+    store.setSession("today", function () {
+      router.push({ uri: "/pages/study" })
+    })
+  },
+
+  openStats() {
+    router.push({ uri: "/pages/stats" })
+  },
+
+  openSettings() {
+    router.push({ uri: "/pages/settings" })
+  }
+}
+</script>
+
+<style>
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 0 16px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.top-bar {
+  width: 100%;
+  height: 34px;
+  margin-top: 12px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  font-size: 26px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.streak {
+  font-size: 20px;
+  color: #34d399;
+}
+
+.hero {
+  width: 100%;
+  height: 94px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-num {
+  font-size: 62px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.hero-label {
+  margin-top: 2px;
+  font-size: 21px;
+  color: #8b949e;
+}
+
+.stats-card {
+  width: 100%;
+  height: 76px;
+  flex-direction: row;
+  align-items: center;
+  border-radius: 18px;
+  background-color: #16191c;
+}
+
+.stat-item {
+  flex: 1;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-divider {
+  width: 1px;
+  height: 40px;
+  background-color: #262b30;
+}
+
+.stat-num {
+  font-size: 30px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.stat-new {
+  color: #34d399;
+}
+
+.stat-label {
+  margin-top: 4px;
+  font-size: 19px;
+  color: #8b949e;
+}
+
+.progress-wrap {
+  width: 100%;
+  margin-top: 12px;
+  flex-direction: column;
+}
+
+.progress-bg {
+  width: 100%;
+  height: 10px;
+  flex-direction: row;
+  border-radius: 5px;
+  background-color: #1f2428;
+}
+
+.progress-fill {
+  height: 10px;
+  border-radius: 5px;
+  background-color: #34d399;
+}
+
+.progress-text {
+  margin-top: 8px;
+  width: 100%;
+  font-size: 19px;
+  color: #8b949e;
+  text-align: center;
+}
+
+.btn-primary {
+  width: 100%;
+  height: 60px;
+  margin-top: 12px;
+  border-radius: 33px;
+  background-color: #34d399;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-disabled {
+  background-color: #1f2428;
+}
+
+.btn-text {
+  font-size: 25px;
+  font-weight: bold;
+  color: #06251b;
+}
+
+.quick-row {
+  width: 100%;
+  height: 56px;
+  margin-top: 10px;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.quick-btn {
+  width: 48%;
+  height: 56px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background-color: #14181b;
+}
+
+.quick-off {
+  background-color: #0e1012;
+}
+
+.quick-title {
+  font-size: 21px;
+  font-weight: bold;
+  color: #34d399;
+}
+
+.quick-sub {
+  margin-top: 2px;
+  font-size: 17px;
+  color: #6e7681;
+}
+
+.footer {
+  width: 100%;
+  height: 36px;
+  margin-top: auto;
+  margin-bottom: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.footer-btn {
+  font-size: 20px;
+  color: #6e7681;
+}
+</style>

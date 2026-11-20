@@ -1,0 +1,512 @@
+<template>
+  <div class="page">
+    <div class="top-bar" if="{{ !finished }}">
+      <text class="counter">{{ counterText }}</text>
+      <text class="quit-btn" onclick="quit">退出</text>
+    </div>
+    <div class="bar-bg" if="{{ !finished }}">
+      <div class="bar-fill" style="width: {{ progressPercent }}%"></div>
+    </div>
+
+    <div class="card-area" if="{{ !finished && !empty }}">
+      <div class="study-card" onclick="toggleReveal">
+        <text class="badge" if="{{ isNewCard }}">新词</text>
+        <text class="{{ wordClass }}">{{ wordText }}</text>
+        <text class="phonetic" if="{{ phoneticText }}">{{ phoneticText }}</text>
+        <text class="word-note" if="{{ noteText }}">{{ noteText }}</text>
+
+        <div class="divider"></div>
+
+        <scroll class="def-scroll" scroll-y="true" if="{{ revealed }}">
+          <text class="def-text">{{ defText }}</text>
+        </scroll>
+        <text class="tap-hint" if="{{ !revealed }}">轻点卡片查看释义</text>
+      </div>
+    </div>
+
+    <div class="empty-wrap" if="{{ !finished && empty }}">
+      <text class="empty-text">{{ emptyText }}</text>
+      <text class="empty-sub">{{ emptySub }}</text>
+    </div>
+
+    <div class="actions" if="{{ !finished && !empty }}">
+      <div class="btn-primary" onclick="reveal" if="{{ !revealed }}">
+        <text class="btn-text">显示释义</text>
+      </div>
+      <div class="grade-row" if="{{ revealed }}">
+        <div class="grade-btn grade-forgot" onclick="gradeForgot">
+          <text class="grade-title">忘记</text>
+          <text class="grade-sub">1 天后</text>
+        </div>
+        <div class="grade-btn grade-hard" onclick="gradeHard">
+          <text class="grade-title">模糊</text>
+          <text class="grade-sub">稍后</text>
+        </div>
+        <div class="grade-btn grade-good" onclick="gradeGood">
+          <text class="grade-title">认识</text>
+          <text class="grade-sub">{{ nextText }}</text>
+        </div>
+      </div>
+    </div>
+
+    <div class="finish-wrap" if="{{ finished }}">
+      <text class="finish-title">{{ finishTitle }}</text>
+      <text class="finish-num">{{ doneCount }}</text>
+      <text class="finish-sub">新词 {{ newDone }} · 复习 {{ reviewDone }}</text>
+      <text class="finish-sub" if="{{ againDone > 0 }}">其中 {{ againDone }} 个需要加强</text>
+
+      <div class="btn-primary finish-btn" onclick="quit">
+        <text class="btn-text">返回首页</text>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import router from "@system.router"
+
+const store = require("../../common/store.js")
+const WORDS = require("../../common/wordlist.js")
+
+function wordClassFor(text) {
+  const len = text.length
+  if (len <= 9) return "word-lg"
+  if (len <= 12) return "word-md"
+  if (len <= 16) return "word-sm"
+  return "word-xs"
+}
+
+export default {
+  private: {
+    queue: [],
+    index: 0,
+    mode: "plan",
+    revealed: false,
+    finished: false,
+    empty: false,
+    wordText: "",
+    phoneticText: "",
+    defText: "",
+    noteText: "",
+    isNewCard: false,
+    wordClass: "word-lg",
+    counterText: "0 / 0",
+    progressPercent: 0,
+    nextText: "3 天后",
+    doneCount: 0,
+    newDone: 0,
+    reviewDone: 0,
+    againDone: 0,
+    finishTitle: "今日完成",
+    emptyText: "今天的单词都过完啦",
+    emptySub: "明天再来复习吧"
+  },
+
+  onInit() {
+    store.load(() => this.start())
+  },
+
+  onDestroy() {
+    store.flush()
+  },
+
+  start() {
+    // 首页点了「今日复习」时，进入本页直接走今日复习
+    if (store.session() === "today") {
+      store.setSession("plan")
+      this.startTodayReview()
+      return
+    }
+    this.queue = store.buildQueue()
+    if (this.queue.length === 0) {
+      this.empty = true
+      return
+    }
+    this.index = 0
+    this.finished = false
+    this.mode = "plan"
+    this.render()
+  },
+
+  render() {
+    const card = this.queue[this.index]
+    if (!card) {
+      this.finish()
+      return
+    }
+    const item = WORDS.at(card.id)
+    this.wordText = item[0]
+    this.phoneticText = item[1] ? "/" + store.displayPhonetic(item[1]) + "/" : ""
+    this.defText = item[2]
+    this.noteText = item[3] ? "另作 " + item[3] : ""
+    this.isNewCard = card.isNew === true
+    this.wordClass = wordClassFor(item[0])
+    this.revealed = false
+    this.counterText =
+      (this.mode === "today" ? "今日复习 " : "") + (this.index + 1) + " / " + this.queue.length
+    this.progressPercent = Math.round((this.index / this.queue.length) * 100)
+    this.nextText = this.predictInterval(card.id) + " 天后"
+  },
+
+  // 预览「认识」后的复习间隔，让按钮上的提示是真实的下次间隔
+  predictInterval(id) {
+    const p = store.state.progress[id]
+    if (!p) return 1
+    if (p.r <= 1) return 3
+    return Math.max(1, Math.round((p.i * p.e) / 100))
+  },
+
+  toggleReveal() {
+    if (!this.revealed) {
+      this.revealed = true
+    }
+  },
+
+  reveal() {
+    this.revealed = true
+  },
+
+  gradeForgot() {
+    this.apply(0)
+  },
+
+  gradeHard() {
+    this.apply(1)
+  },
+
+  gradeGood() {
+    this.apply(2)
+  },
+
+  apply(q) {
+    const card = this.queue[this.index]
+    if (!card) {
+      return
+    }
+    if (this.mode === "today") {
+      store.gradeTodayReview(card.id, q)
+      this.reviewDone += 1
+    } else {
+      const before = store.state.progress[card.id]
+      const isNew = !before
+      store.grade(card.id, q)
+      if (isNew) this.newDone += 1
+      else this.reviewDone += 1
+    }
+    if (q === 0) this.againDone += 1
+
+    // 忘记的词当天再过一遍，间隔 3 张卡片
+    if (q === 0) {
+      const pos = Math.min(this.queue.length, this.index + 4)
+      const list = this.queue.slice()
+      list.splice(pos, 0, { id: card.id, isNew: false, isToday: card.isToday })
+      this.queue = list
+    }
+
+    this.index += 1
+    this.doneCount = this.reviewDone + this.newDone
+    if (this.index >= this.queue.length) {
+      this.finish()
+      return
+    }
+    this.render()
+  },
+
+  finish() {
+    this.progressPercent = 100
+    this.finished = true
+    this.finishTitle = this.mode === "today" ? "今日复习完成" : "今日完成"
+    store.flush()
+  },
+
+  // 今日复习：只过今天新学过的词，和普通复习分开
+  startTodayReview() {
+    this.queue = store.buildTodayReviewQueue()
+    if (this.queue.length === 0) {
+      this.finished = false
+      this.empty = true
+      this.emptyText = "今天还没有新学的词"
+      this.emptySub = "先去学几个新词再来复习"
+      return
+    }
+    this.mode = "today"
+    this.index = 0
+    this.finished = false
+    this.progressPercent = 0
+    this.newDone = 0
+    this.reviewDone = 0
+    this.againDone = 0
+    this.doneCount = 0
+    this.render()
+  },
+
+  quit() {
+    // 等这一轮写盘真正完成再返回，避免页面被销毁时写入还在路上；
+    // 400ms 兜底，万一存储回调没回来也不能卡住返回
+    let left = false
+    const go = function () {
+      if (left) return
+      left = true
+      router.back()
+    }
+    store.flush(go)
+    setTimeout(go, 400)
+  }
+}
+</script>
+
+<style>
+.page {
+  width: 100%;
+  height: 100%;
+  padding: 0 14px;
+  flex-direction: column;
+  background-color: #000000;
+}
+
+.top-bar {
+  width: 100%;
+  height: 34px;
+  margin-top: 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.counter {
+  font-size: 21px;
+  color: #8b949e;
+}
+
+.quit-btn {
+  font-size: 20px;
+  color: #6e7681;
+}
+
+.bar-bg {
+  width: 100%;
+  height: 6px;
+  flex-direction: row;
+  margin-top: 4px;
+  border-radius: 3px;
+  background-color: #1f2428;
+}
+
+.bar-fill {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #34d399;
+}
+
+.card-area {
+  flex: 1;
+  width: 100%;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.study-card {
+  width: 100%;
+  min-height: 250px;
+  padding: 16px 14px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 22px;
+  background-color: #16191c;
+}
+
+.badge {
+  margin-bottom: 6px;
+  padding: 2px 12px;
+  border-radius: 10px;
+  font-size: 17px;
+  color: #06251b;
+  background-color: #34d399;
+}
+
+.word-lg {
+  max-width: 100%;
+  font-size: 54px;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+}
+
+.word-md {
+  max-width: 100%;
+  font-size: 44px;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+}
+
+.word-sm {
+  max-width: 100%;
+  font-size: 34px;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+}
+
+.word-xs {
+  max-width: 100%;
+  font-size: 27px;
+  font-weight: bold;
+  color: #ffffff;
+  text-align: center;
+}
+
+.phonetic {
+  margin-top: 4px;
+  font-size: 20px;
+  color: #7d8590;
+  text-align: center;
+}
+
+.word-note {
+  margin-top: 4px;
+  font-size: 18px;
+  color: #5c636a;
+  text-align: center;
+}
+
+.divider {
+  width: 100%;
+  height: 1px;
+  margin: 14px 0 10px;
+  background-color: #262b30;
+}
+
+.def-scroll {
+  width: 100%;
+  height: 96px;
+}
+
+.def-text {
+  width: 100%;
+  font-size: 25px;
+  color: #d7dde3;
+  text-align: center;
+  line-height: 34px;
+}
+
+.tap-hint {
+  margin-top: 10px;
+  font-size: 19px;
+  color: #4d545b;
+}
+
+.empty-wrap {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.empty-text {
+  font-size: 26px;
+  color: #ffffff;
+}
+
+.empty-sub {
+  margin-top: 8px;
+  font-size: 20px;
+  color: #6e7681;
+}
+
+.actions {
+  width: 100%;
+  height: 84px;
+  margin-bottom: 12px;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.btn-primary {
+  width: 100%;
+  height: 62px;
+  border-radius: 31px;
+  background-color: #34d399;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-text {
+  font-size: 25px;
+  font-weight: bold;
+  color: #06251b;
+}
+
+.grade-row {
+  width: 100%;
+  height: 74px;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.grade-btn {
+  width: 31%;
+  height: 74px;
+  border-radius: 16px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.grade-forgot {
+  background-color: #3a1d20;
+}
+
+.grade-hard {
+  background-color: #3a331c;
+}
+
+.grade-good {
+  background-color: #14372c;
+}
+
+.grade-title {
+  font-size: 25px;
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.grade-sub {
+  margin-top: 2px;
+  font-size: 16px;
+  color: #9aa4ad;
+}
+
+.finish-wrap {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.finish-title {
+  font-size: 24px;
+  color: #8b949e;
+}
+
+.finish-num {
+  margin-top: 4px;
+  font-size: 66px;
+  font-weight: bold;
+  color: #34d399;
+}
+
+.finish-sub {
+  margin-top: 4px;
+  font-size: 20px;
+  color: #8b949e;
+}
+
+.finish-btn {
+  width: 84%;
+  margin-top: 14px;
+}
+
+</style>

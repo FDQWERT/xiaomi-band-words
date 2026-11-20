@@ -1,0 +1,14 @@
+<script>
+const store = require("./common/store.js")
+
+export default {
+  onCreate() {
+    // 启动即预热词库与进度，首页首帧就不会空着
+    store.load()
+  },
+
+  onDestroy() {
+    store.flush()
+  }
+}
+</script>

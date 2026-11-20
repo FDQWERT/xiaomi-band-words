@@ -1,0 +1,14 @@
+{
+  "name": "bandwords",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小米手环 Vela 快应用 · 高考3500 背单词",
+  "scripts": {
+    "start": "aiot start",
+    "build": "aiot build",
+    "release": "aiot release"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "^2.0.5"
+  }
+}
